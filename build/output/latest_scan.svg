@@ -1,0 +1,11 @@
+<svg xmlns='http://www.w3.org/2000/svg' width='900' height='900' viewBox='0 0 900 900'>
+<rect width='100%' height='100%' fill='white'/>
+<line x1='0' y1='450' x2='900' y2='450' stroke='black' stroke-width='1'/>
+<line x1='450' y1='0' x2='450' y2='900' stroke='black' stroke-width='1'/>
+<circle cx='450' cy='450' r='101.25' fill='none' stroke='#dddddd' stroke-width='1'/>
+<circle cx='450' cy='450' r='202.5' fill='none' stroke='#dddddd' stroke-width='1'/>
+<circle cx='450' cy='450' r='303.75' fill='none' stroke='#dddddd' stroke-width='1'/>
+<circle cx='450' cy='450' r='405' fill='none' stroke='#dddddd' stroke-width='1'/>
+<circle cx='450' cy='386' r='1.6' fill='#1e5ac8'/>
+<text x='10' y='24' fill='black' font-family='monospace' font-size='18'>frecuencia=10 Hz, puntos=1</text>
+</svg>
