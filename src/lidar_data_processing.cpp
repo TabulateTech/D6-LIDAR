@@ -34,11 +34,23 @@ LidarDataProcessing::~LidarDataProcessing() {
 }
 
 bool LidarDataProcessing::sendStartCommand() {
-    return serial_port_.writeData(START_LIDAR_CMD, sizeof(START_LIDAR_CMD)) == RESULT_OK;
+    diagnostics_.start_commands_sent++;
+    if (serial_port_.writeData(START_LIDAR_CMD, sizeof(START_LIDAR_CMD)) != RESULT_OK) {
+        setLastError("No se pudo transmitir el comando de inicio");
+        return false;
+    }
+    return waitForAck(START_ACK_OK, sizeof(START_ACK_OK), START_ACK_ERROR, sizeof(START_ACK_ERROR),
+                      800, "inicio", true);
 }
 
 bool LidarDataProcessing::sendStopCommand() {
-    return serial_port_.writeData(STOP_LIDAR_CMD, sizeof(STOP_LIDAR_CMD)) == RESULT_OK;
+    diagnostics_.stop_commands_sent++;
+    if (serial_port_.writeData(STOP_LIDAR_CMD, sizeof(STOP_LIDAR_CMD)) != RESULT_OK) {
+        setLastError("No se pudo transmitir el comando de parada");
+        return false;
+    }
+    return waitForAck(STOP_ACK_OK, sizeof(STOP_ACK_OK), STOP_ACK_ERROR, sizeof(STOP_ACK_ERROR),
+                      800, "parada", false);
 }
 
 void LidarDataProcessing::setDebugOptions(const DebugOptions& options) {
@@ -420,6 +432,103 @@ float LidarDataProcessing::normalizeAngleDeg(float angle_deg) {
         angle_deg -= 360.0f;
     }
     return angle_deg;
+}
+
+bool LidarDataProcessing::waitForAck(const std::uint8_t* ok_ack,
+                                     std::size_t ok_size,
+                                     const std::uint8_t* error_ack,
+                                     std::size_t error_size,
+                                     std::uint32_t timeout_ms,
+                                     const char* command_name,
+                                     bool is_start_command) {
+    std::vector<std::uint8_t> ack_buffer;
+    const auto deadline = current_time_ms() + timeout_ms;
+
+    auto preserve_non_ack_bytes = [&](std::size_t match_pos, std::size_t match_size) {
+        if (match_pos > 0) {
+            stream_buffer_.insert(stream_buffer_.end(), ack_buffer.begin(),
+                                  ack_buffer.begin() + static_cast<std::ptrdiff_t>(match_pos));
+        }
+        const std::size_t tail_begin = match_pos + match_size;
+        if (tail_begin < ack_buffer.size()) {
+            stream_buffer_.insert(stream_buffer_.end(),
+                                  ack_buffer.begin() + static_cast<std::ptrdiff_t>(tail_begin),
+                                  ack_buffer.end());
+        }
+        ack_buffer.clear();
+    };
+
+    while (current_time_ms() < deadline) {
+        const std::size_t ok_pos = findPattern(ack_buffer, ok_ack, ok_size);
+        if (ok_pos != std::string::npos) {
+            diagnostics_.last_ack = bytesToHex(std::vector<std::uint8_t>(ok_ack, ok_ack + ok_size), ok_size);
+            preserve_non_ack_bytes(ok_pos, ok_size);
+            if (is_start_command) {
+                diagnostics_.start_ack_ok++;
+            } else {
+                diagnostics_.stop_ack_ok++;
+            }
+            return true;
+        }
+
+        const std::size_t error_pos = findPattern(ack_buffer, error_ack, error_size);
+        if (error_pos != std::string::npos) {
+            diagnostics_.last_ack = bytesToHex(std::vector<std::uint8_t>(error_ack, error_ack + error_size), error_size);
+            preserve_non_ack_bytes(error_pos, error_size);
+            if (is_start_command) {
+                diagnostics_.start_ack_error++;
+            } else {
+                diagnostics_.stop_ack_error++;
+            }
+            setLastError(std::string("ACK de ") + command_name + " reportó error");
+            return false;
+        }
+
+        const std::uint32_t remaining_ms = static_cast<std::uint32_t>(deadline - current_time_ms());
+        const std::size_t available_now = serial_port_.available();
+        const std::size_t to_read = available_now > 0 ? std::min<std::size_t>(available_now, 256) : 1;
+        std::vector<std::uint8_t> temp(to_read);
+        std::size_t received = 0;
+        const result_t rc = serial_port_.readData(temp.data(), temp.size(), received, std::min<std::uint32_t>(remaining_ms, 50));
+
+        if (rc == RESULT_FAIL) {
+            setLastError(std::string("Fallo al leer ACK de ") + command_name);
+            stream_buffer_.insert(stream_buffer_.end(), ack_buffer.begin(), ack_buffer.end());
+            return false;
+        }
+        if (rc == RESULT_TIMEOUT || received == 0) {
+            continue;
+        }
+
+        diagnostics_.bytes_ingested += received;
+        if (received == 1) {
+            diagnostics_.single_byte_reads++;
+        } else {
+            diagnostics_.bulk_reads++;
+        }
+        appendRecentBytes(temp.data(), received);
+        dumpSerialBytes(temp.data(), received);
+        ack_buffer.insert(ack_buffer.end(), temp.begin(), temp.begin() + static_cast<std::ptrdiff_t>(received));
+    }
+
+    diagnostics_.ack_timeouts++;
+    stream_buffer_.insert(stream_buffer_.end(), ack_buffer.begin(), ack_buffer.end());
+    setLastError(std::string("Timeout esperando ACK de ") + command_name);
+    return false;
+}
+
+std::size_t LidarDataProcessing::findPattern(const std::vector<std::uint8_t>& haystack,
+                                             const std::uint8_t* needle,
+                                             std::size_t needle_size) {
+    if (needle == nullptr || needle_size == 0 || haystack.size() < needle_size) {
+        return std::string::npos;
+    }
+
+    auto it = std::search(haystack.begin(), haystack.end(), needle, needle + static_cast<std::ptrdiff_t>(needle_size));
+    if (it == haystack.end()) {
+        return std::string::npos;
+    }
+    return static_cast<std::size_t>(std::distance(haystack.begin(), it));
 }
 
 void LidarDataProcessing::appendRecentBytes(const std::uint8_t* data, std::size_t size) {
