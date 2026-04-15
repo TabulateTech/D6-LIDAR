@@ -9,6 +9,7 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <vector>
 
 class NodeLidar {
 public:
@@ -30,6 +31,8 @@ private:
     LaserScan buildScanFromNodes(const std::vector<RawNode>& nodes, float scan_frequency_hz) const;
     void publishScan(const LaserScan& scan);
     void printDiagnostics(std::size_t current_scan_points, bool packet_received);
+    static float computeAccumulatedAngleSpanDeg(const std::vector<RawNode>& nodes);
+    static bool looksLikeCompleteTurn(const std::vector<RawNode>& nodes);
 
     LidarGeneralInfo general_info_;
     LidarRobotInfo robot_info_;
@@ -42,6 +45,9 @@ private:
     bool stop_requested_ = false;
     std::thread worker_;
     DeviceInfo device_info_;
+
+    std::vector<RawNode> startup_packet_;
+    float startup_packet_frequency_hz_ = 0.0f;
 
     std::unique_ptr<SerialPort> serial_port_;
     std::unique_ptr<LidarDataProcessing> processing_;
