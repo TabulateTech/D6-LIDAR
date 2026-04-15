@@ -2,8 +2,18 @@
 
 #include <cmath>
 
+namespace {
+
+    float correctedAngleRad(float angle_deg, float install_to_zero_deg) {
+        const float wrapped = std::fmod(angle_deg + install_to_zero_deg + 360.0f, 360.0f);
+        return wrapped * static_cast<float>(PI / 180.0);
+    }
+
+} // namespace
+
 PointCloudOptimize::PointCloudOptimize(const LidarRobotInfo& robot_info)
-    : robot_info_(robot_info) {}
+    : robot_info_(robot_info) {
+}
 
 void PointCloudOptimize::applyCoverCut(LaserScan& scan) const {
     if (!robot_info_.lidar_cover_enable || robot_info_.cover_angles.empty()) {
@@ -36,7 +46,7 @@ void PointCloudOptimize::pointCloudFilter(LaserScan& scan) const {
         const float br = b.range;
         const float dtheta = std::fabs(a.angle - b.angle) * static_cast<float>(PI / 180.0);
         return std::sqrt(ar * ar + br * br - 2.0f * ar * br * std::cos(dtheta));
-    };
+        };
 
     for (std::size_t i0 = 0; i0 < scan.points.size(); ++i0) {
         const std::size_t i1 = (i0 + 1) % scan.points.size();
@@ -50,10 +60,13 @@ void PointCloudOptimize::pointCloudFilter(LaserScan& scan) const {
         depth_state += (scan.points[i3].range != 0.0f) * 8;
 
         if (depth_state == 0x0F) {
-            const float x0 = scan.points[i0].range * std::cos(scan.points[i0].angle * static_cast<float>(PI / 180.0));
-            const float y0 = scan.points[i0].range * std::sin(scan.points[i0].angle * static_cast<float>(PI / 180.0));
-            const float x3 = scan.points[i3].range * std::cos(scan.points[i3].angle * static_cast<float>(PI / 180.0));
-            const float y3 = scan.points[i3].range * std::sin(scan.points[i3].angle * static_cast<float>(PI / 180.0));
+            const float rad0 = correctedAngleRad(scan.points[i0].angle, robot_info_.install_to_zero);
+            const float rad3 = correctedAngleRad(scan.points[i3].angle, robot_info_.install_to_zero);
+
+            const float x0 = scan.points[i0].range * std::cos(rad0);
+            const float y0 = scan.points[i0].range * std::sin(rad0);
+            const float x3 = scan.points[i3].range * std::cos(rad3);
+            const float y3 = scan.points[i3].range * std::sin(rad3);
             const float x1 = (x3 + 2.0f * x0) / 3.0f;
             const float y1 = (y3 + 2.0f * y0) / 3.0f;
             const float x2 = (2.0f * x3 + x0) / 3.0f;
@@ -80,9 +93,11 @@ void PointCloudOptimize::pointCloudFilter(LaserScan& scan) const {
                 scan.points[i1].range = r1 + 0.4f * (scan.points[i1].range - r1);
                 scan.points[i2].range = r2 + 0.4f * (scan.points[i2].range - r2);
             }
-        } else if ((depth_state & 0x0E) == 0x04) {
+        }
+        else if ((depth_state & 0x0E) == 0x04) {
             scan.points[i2].range = 0.0f;
-        } else if ((depth_state & 0x07) == 0x02) {
+        }
+        else if ((depth_state & 0x07) == 0x02) {
             scan.points[i1].range = 0.0f;
         }
     }
@@ -118,7 +133,8 @@ void PointCloudOptimize::pointCloudFilter(LaserScan& scan) const {
             p.y = 0.0f;
             continue;
         }
-        const float rad = p.angle * static_cast<float>(PI / 180.0);
+
+        const float rad = correctedAngleRad(p.angle, robot_info_.install_to_zero);
         p.x = p.range * std::cos(rad);
         p.y = p.range * std::sin(rad);
     }
