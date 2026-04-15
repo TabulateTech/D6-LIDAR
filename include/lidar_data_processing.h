@@ -45,6 +45,17 @@ private:
     static std::uint16_t computeChecksum(const std::vector<std::uint8_t>& packet);
     static float normalizeAngleDeg(float angle_deg);
 
+    bool waitForAck(const std::uint8_t* ok_ack,
+                    std::size_t ok_size,
+                    const std::uint8_t* error_ack,
+                    std::size_t error_size,
+                    std::uint32_t timeout_ms,
+                    const char* command_name,
+                    bool is_start_command);
+    static std::size_t findPattern(const std::vector<std::uint8_t>& haystack,
+                                   const std::uint8_t* needle,
+                                   std::size_t needle_size);
+
     void appendRecentBytes(const std::uint8_t* data, std::size_t size);
     void dumpSerialBytes(const std::uint8_t* data, std::size_t size);
     void setLastError(std::string message);
