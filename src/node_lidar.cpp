@@ -8,6 +8,23 @@
 #include <random>
 #include <sstream>
 
+namespace {
+
+constexpr std::size_t MIN_POINTS_PER_TURN = 50;
+constexpr float MIN_TURN_SPAN_DEG = 300.0f;
+
+float normalizeDeltaDeg(float delta) {
+    while (delta <= -180.0f) {
+        delta += 360.0f;
+    }
+    while (delta > 180.0f) {
+        delta -= 360.0f;
+    }
+    return delta;
+}
+
+} // namespace
+
 NodeLidar::NodeLidar(LidarGeneralInfo general_info, LidarRobotInfo robot_info, bool simulate, DebugOptions debug_options)
     : general_info_(std::move(general_info)),
       robot_info_(std::move(robot_info)),
@@ -90,8 +107,8 @@ bool NodeLidar::start() {
                 if (processing_->readPacket(packet, ring_start, scan_frequency_hz, 1500)) {
                     std::cerr << "Advertencia: no se recibió ACK de inicio documentado, pero sí llegaron paquetes válidos; se continuará en modo pasivo." << std::endl;
                     if (!packet.empty()) {
-                        LaserScan first_scan = buildScanFromNodes(packet, scan_frequency_hz > 0.0f ? scan_frequency_hz : 10.0f);
-                        publishScan(first_scan);
+                        startup_packet_ = std::move(packet);
+                        startup_packet_frequency_hz_ = scan_frequency_hz > 0.0f ? scan_frequency_hz : 10.0f;
                     }
                     sleep_ms(50);
                     worker_ = std::thread(&NodeLidar::acquisitionLoop, this);
@@ -255,6 +272,16 @@ void NodeLidar::acquisitionLoop() {
     std::uint64_t last_debug_log_ms = current_time_ms();
     bool announced_first_packet = false;
 
+    if (!startup_packet_.empty()) {
+        current_scan = std::move(startup_packet_);
+        if (startup_packet_frequency_hz_ > 0.0f) {
+            last_frequency_hz = startup_packet_frequency_hz_;
+        }
+        startup_packet_frequency_hz_ = 0.0f;
+        announced_first_packet = true;
+        std::cout << "Primer paquete válido recibido." << std::endl;
+    }
+
     while (true) {
         {
             std::lock_guard<std::mutex> lock(mutex_);
@@ -305,11 +332,17 @@ void NodeLidar::acquisitionLoop() {
         }
 
         if ((ring_start || inferred_ring_start) && !current_scan.empty()) {
-            std::cout << "Vuelta completa: " << current_scan.size() << " puntos, "
-                      << last_frequency_hz << " Hz"
-                      << (inferred_ring_start && !ring_start ? " (por rollover angular)" : "")
-                      << std::endl;
-            publishScan(buildScanFromNodes(current_scan, last_frequency_hz));
+            if (looksLikeCompleteTurn(current_scan)) {
+                std::cout << "Vuelta completa: " << current_scan.size() << " puntos, "
+                          << last_frequency_hz << " Hz"
+                          << (inferred_ring_start && !ring_start ? " (por rollover angular)" : "")
+                          << std::endl;
+                publishScan(buildScanFromNodes(current_scan, last_frequency_hz));
+            } else {
+                std::cout << "Descartando vuelta incompleta: " << current_scan.size()
+                          << " puntos, barrido=" << computeAccumulatedAngleSpanDeg(current_scan)
+                          << " deg" << std::endl;
+            }
             current_scan.clear();
         }
 
@@ -318,6 +351,32 @@ void NodeLidar::acquisitionLoop() {
             current_scan.resize(MAX_SCAN_NODES);
         }
     }
+}
+
+float NodeLidar::computeAccumulatedAngleSpanDeg(const std::vector<RawNode>& nodes) {
+    if (nodes.size() < 2) {
+        return 0.0f;
+    }
+
+    float span = 0.0f;
+    float previous = nodes.front().angle_deg;
+    for (std::size_t i = 1; i < nodes.size(); ++i) {
+        const float current = nodes[i].angle_deg;
+        float delta = normalizeDeltaDeg(current - previous);
+        if (delta < 0.0f) {
+            delta += 360.0f;
+        }
+        span += delta;
+        previous = current;
+    }
+    return span;
+}
+
+bool NodeLidar::looksLikeCompleteTurn(const std::vector<RawNode>& nodes) {
+    if (nodes.size() < MIN_POINTS_PER_TURN) {
+        return false;
+    }
+    return computeAccumulatedAngleSpanDeg(nodes) >= MIN_TURN_SPAN_DEG;
 }
 
 void NodeLidar::simulatorLoop() {
