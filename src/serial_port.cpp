@@ -77,6 +77,8 @@ bool SerialPort::open() {
     timeouts.WriteTotalTimeoutMultiplier = 0;
     SetCommTimeouts(h, &timeouts);
 
+    SetupComm(h, 1 << 15, 1 << 15);
+    std::this_thread::sleep_for(std::chrono::milliseconds(80));
     PurgeComm(h, PURGE_RXCLEAR | PURGE_TXCLEAR);
     handle_ = h;
     return true;
@@ -159,6 +161,7 @@ result_t SerialPort::writeData(const std::uint8_t* data, std::size_t size) {
     if (!WriteFile(static_cast<HANDLE>(handle_), data, static_cast<DWORD>(size), &written, nullptr)) {
         return RESULT_FAIL;
     }
+    FlushFileBuffers(static_cast<HANDLE>(handle_));
     return written == size ? RESULT_OK : RESULT_FAIL;
 #else
     std::size_t offset = 0;
@@ -172,6 +175,7 @@ result_t SerialPort::writeData(const std::uint8_t* data, std::size_t size) {
         }
         offset += static_cast<std::size_t>(n);
     }
+    tcdrain(fd_);
     return RESULT_OK;
 #endif
 }
