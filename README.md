@@ -5,15 +5,15 @@ Permite leer el sensor por puerto serial, procesar la nube de puntos y visualiza
 
 ## Requisitos
 
+### Windows
+- Visual Studio 2022 con el complemento de **Desktop development with C++**
+- CMake
+- Puerto serial disponible (`COM3`, `COM4`, etc.)
+
 ### Linux
 - CMake
 - Compilador con soporte C++17
 - Puerto serial disponible (`/dev/ttyUSB0`, `/dev/ttyACM0`, etc.)
-
-### Windows
-- Visual Studio 2022 con **Desktop development with C++**
-- CMake
-- Puerto serial disponible (`COM3`, `COM4`, etc.)
 
 ## Build en Linux
 
@@ -53,28 +53,58 @@ Ejecutar, por ejemplo:
 
 ## Opciones útiles
 
-```bash
---simulate
---port /dev/ttyUSB0
---baudrate 230400
---width 900
---height 900
---max-range 10
---install-angle 90
---no-filter
---save-csv
---output output
---debug
---verbose
---debug-every-ms 2000
---dump-serial raw_dump.bin
---dump-limit 262144
+### Opciones de línea de comandos
+
+- `--simulate`  
+  Ejecuta el programa en modo simulación sin necesidad de un sensor LiDAR conectado
+
+- `--port`  
+  Especifica el puerto serial
+
+- `--baudrate 230400`  
+  Define la velocidad de comunicación serial
+
+- `--width 900`  
+  Establece el ancho de la ventana
+
+- `--height 900`  
+  Establece la altura de la ventana
+
+- `--max-range 10`  
+  Define la distancia máxima, en metros, que se mostrará o procesará.
+
+- `--install-angle 90`  
+  Establece el ángulo de instalación del LiDAR en grados
+
+- `--no-filter`  
+  Desactiva el filtrado de puntos, por lo que se usarán directamente los datos crudos del LiDAR.
+
+- `--save-csv`  
+  Habilita el guardado de los datos capturados del LiDAR en un archivo CSV
+
+- `--output output`  
+  Define el nombre base o la ruta de los archivos de salida generados
+
+- `--debug`  
+  Activa el modo de depuración para mostrar información adicional de diagnóstico
+
+- `--verbose`  
+  Activa mensajes más detallados durante la ejecución del programa
+
+- `--debug-every-ms 2000`  
+  Muestra información de depuración de forma periódica cada cierta cantidad de milisegundos
+
+- `--dump-serial raw_dump.bin`  
+  Guarda los datos crudos de la comunicación serial en un archivo binario
+
+- `--dump-limit 262144`  
+  Limita la cantidad máxima de bytes que se escribirán en el archivo de volcado serial
 ```
 
 ## Salidas
 
-- `output/latest_scan.svg` → último frame de la nube de puntos
-- `output/latest_scan.csv` → último frame exportado a CSV si activas `--save-csv`
+- `output/latest_scan.svg`: último frame de la nube de puntos
+- `output/latest_scan.csv`: último frame exportado a CSV si activas `--save-csv`
 
 ## Notas importantes
 
