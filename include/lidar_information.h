@@ -9,6 +9,10 @@
 constexpr double PI = 3.14159265358979323846;
 constexpr std::uint8_t START_LIDAR_CMD[4] = {0xAA, 0x55, 0xF0, 0x0F};
 constexpr std::uint8_t STOP_LIDAR_CMD[4]  = {0xAA, 0x55, 0xF5, 0x0A};
+constexpr std::uint8_t START_ACK_OK[12]    = {0xA5, 0x5A, 0x50, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xA8};
+constexpr std::uint8_t START_ACK_ERROR[12] = {0xA5, 0x5A, 0x55, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xE9};
+constexpr std::uint8_t STOP_ACK_OK[12]     = {0xA5, 0x5A, 0x55, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xAD};
+constexpr std::uint8_t STOP_ACK_ERROR[12]  = {0xA5, 0x5A, 0x55, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xE9};
 
 constexpr std::uint16_t DATA_PACKET_HEADER = 0x55AA;
 constexpr std::size_t MAX_SCAN_NODES = 800;
@@ -57,10 +61,18 @@ struct LidarDiagnosticsSnapshot {
 
     std::uint64_t resync_discards = 0;
     std::uint64_t speed_bytes_discarded = 0;
+    std::uint64_t start_commands_sent = 0;
+    std::uint64_t stop_commands_sent = 0;
+    std::uint64_t start_ack_ok = 0;
+    std::uint64_t start_ack_error = 0;
+    std::uint64_t stop_ack_ok = 0;
+    std::uint64_t stop_ack_error = 0;
+    std::uint64_t ack_timeouts = 0;
     std::size_t stream_buffer_size = 0;
     std::size_t raw_buffer_size = 0;
 
     std::string last_error;
+    std::string last_ack;
     std::string recent_hex;
 };
 
@@ -115,7 +127,7 @@ struct LidarGeneralInfo {
 };
 
 struct LidarRobotInfo {
-    float install_to_zero = 90.0f;
+    float install_to_zero = 0.0f;
     int robot_diameter_mm = 0;
     int lidar_robot_center_distance_mm = 0;
     bool lidar_cover_enable = false;
