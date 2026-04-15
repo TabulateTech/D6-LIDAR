@@ -21,8 +21,9 @@
 #include <X11/Xlib.h>
 #endif
 
-PointCloudViewer::PointCloudViewer(int width, int height, float max_range_m, std::string output_dir)
-    : width_(width), height_(height), max_range_m_(max_range_m), output_dir_(std::move(output_dir)) {
+PointCloudViewer::PointCloudViewer(int width, int height, float max_range_m, float zoom_factor, std::string output_dir)
+    : width_(width), height_(height), max_range_m_(max_range_m),
+      zoom_factor_(zoom_factor > 0.0f ? zoom_factor : 1.0f), output_dir_(std::move(output_dir)) {
     std::filesystem::create_directories(output_dir_);
 }
 
@@ -114,7 +115,7 @@ void PointCloudViewer::render(const LaserScan& scan) {
 
     SelectObject(hdc, grid_pen);
     for (int i = 1; i <= 4; ++i) {
-        const int r = static_cast<int>(((std::min)(width_, height_) * 0.45) * (static_cast<float>(i) / 4.0f));
+        const int r = static_cast<int>(((std::min)(width_, height_) * 0.45f) * (static_cast<float>(i) / 4.0f));
         Arc(hdc, width_ / 2 - r, height_ / 2 - r, width_ / 2 + r, height_ / 2 + r, 0, 0, 0, 0);
     }
 
@@ -131,6 +132,9 @@ void PointCloudViewer::render(const LaserScan& scan) {
         }
         const int x = toScreenX(point.x);
         const int y = toScreenY(point.y);
+        if (!isInsideViewport(x, y)) {
+            continue;
+        }
         SetPixel(hdc, x, y, RGB(30, 90, 200));
     }
 
@@ -150,7 +154,7 @@ void PointCloudViewer::render(const LaserScan& scan) {
 
     XSetForeground(display, gc, 0xDDDDDD);
     for (int i = 1; i <= 4; ++i) {
-        const int r = static_cast<int>(((std::min)(width_, height_) * 0.45) * (static_cast<float>(i) / 4.0f));
+        const int r = static_cast<int>(((std::min)(width_, height_) * 0.45f) * (static_cast<float>(i) / 4.0f));
         XDrawArc(display, window, gc, width_ / 2 - r, height_ / 2 - r, 2 * r, 2 * r, 0, 360 * 64);
     }
 
@@ -163,7 +167,12 @@ void PointCloudViewer::render(const LaserScan& scan) {
         if (point.range <= 0.0f || point.range > max_range_m_) {
             continue;
         }
-        XDrawPoint(display, window, gc, toScreenX(point.x), toScreenY(point.y));
+        const int x = toScreenX(point.x);
+        const int y = toScreenY(point.y);
+        if (!isInsideViewport(x, y)) {
+            continue;
+        }
+        XDrawPoint(display, window, gc, x, y);
     }
     XFlush(display);
 #endif
@@ -224,22 +233,38 @@ void PointCloudViewer::saveSvg(const LaserScan& scan) const {
         if (point.range <= 0.0f || point.range > max_range_m_) {
             continue;
         }
-        out << "<circle cx='" << toScreenX(point.x) << "' cy='" << toScreenY(point.y)
+        const int x = toScreenX(point.x);
+        const int y = toScreenY(point.y);
+        if (!isInsideViewport(x, y)) {
+            continue;
+        }
+        out << "<circle cx='" << x << "' cy='" << y
             << "' r='1.6' fill='#1e5ac8'/>\n";
     }
 
     std::ostringstream label;
-    label << "frecuencia=" << scan.scan_frequency_hz << " Hz, puntos=" << scan.points.size();
+    label << "frecuencia=" << scan.scan_frequency_hz << " Hz, puntos=" << scan.points.size()
+          << ", rango_max=" << max_range_m_ << " m, zoom=" << zoom_factor_
+          << "x, vista=" << visibleRangeM() << " m";
     out << "<text x='10' y='24' fill='black' font-family='monospace' font-size='18'>" << label.str() << "</text>\n";
     out << "</svg>\n";
 }
 
 int PointCloudViewer::toScreenX(float x_m) const {
-    const float normalized = x_m / max_range_m_;
+    const float normalized = x_m / visibleRangeM();
     return static_cast<int>(width_ * 0.5f + normalized * (width_ * 0.45f));
 }
 
 int PointCloudViewer::toScreenY(float y_m) const {
-    const float normalized = y_m / max_range_m_;
+    const float normalized = y_m / visibleRangeM();
     return static_cast<int>(height_ * 0.5f - normalized * (height_ * 0.45f));
+}
+
+bool PointCloudViewer::isInsideViewport(int x, int y) const {
+    return x >= 0 && x < width_ && y >= 0 && y < height_;
+}
+
+float PointCloudViewer::visibleRangeM() const {
+    constexpr float kMinVisibleRange = 0.001f;
+    return (std::max)(max_range_m_ / zoom_factor_, kMinVisibleRange);
 }
