@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <filesystem>
 #include <iomanip>
 #include <iostream>
 #include <sstream>
@@ -61,7 +62,11 @@ void LidarDataProcessing::setDebugOptions(const DebugOptions& options) {
     }
     serial_dump_written_ = 0;
     if (!debug_options_.dump_serial_path.empty()) {
-        serial_dump_.open(debug_options_.dump_serial_path, std::ios::binary | std::ios::trunc);
+        const std::filesystem::path dump_path(debug_options_.dump_serial_path);
+        if (dump_path.has_parent_path()) {
+            std::filesystem::create_directories(dump_path.parent_path());
+        }
+        serial_dump_.open(dump_path, std::ios::binary | std::ios::trunc);
         if (!serial_dump_) {
             setLastError("No se pudo abrir el archivo de volcado serial: " + debug_options_.dump_serial_path);
         }
@@ -258,7 +263,7 @@ bool LidarDataProcessing::tryParseRawPacket(std::vector<RawNode>& packet_nodes,
     ring_start = false;
     scan_frequency_hz = 0.0f;
 
-    // Resync to the inner packet header AA 55 (0x55AA in little-endian).
+
     std::size_t start = 0;
     while (start + 1 < raw_buffer_.size()) {
         if (raw_buffer_[start] == 0xAAu && raw_buffer_[start + 1] == 0x55u) {
@@ -267,8 +272,7 @@ bool LidarDataProcessing::tryParseRawPacket(std::vector<RawNode>& packet_nodes,
 
         const std::uint8_t b = raw_buffer_[start];
         if (b == 0xFEu || b == 0xFFu) {
-            // The datasheet mentions speed-adjust bytes during spin-up; keep counting them
-            // but do not feed them into packet parsing.
+
             diagnostics_.speed_bytes_discarded++;
         }
         ++start;
@@ -392,12 +396,7 @@ std::uint16_t LidarDataProcessing::computeChecksum(const std::vector<std::uint8_
         return 0;
     }
 
-    // This matches the original vendor driver logic for the intensity-enabled packets:
-    //   checksum = PH ^ FSA_raw ^ LSA_raw ^ SampleNumAndCT
-    //   for each 3-byte sample: xor sample[0], then xor (sample[1] | sample[2]<<8)
-    // The D6 manual also states that the 3rd sample byte is padded on the MSB side
-    // when forming 16-bit words, but the vendor implementation used for D2/D6-style
-    // packets effectively groups the sample bytes as [s0] and [s1,s2].
+
     std::uint16_t checksum = DATA_PACKET_HEADER;
     const std::uint16_t sample_num_and_ct = read_u16_le(&packet[2]);
     const std::uint16_t fsa_raw = read_u16_le(&packet[4]);
