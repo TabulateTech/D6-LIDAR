@@ -36,7 +36,7 @@ void printUsage(const char* exe) {
         << "  --width <pix>              Ancho de ventana.\n"
         << "  --height <pix>             Alto de ventana.\n"
         << "  --max-range <m>            Alcance visual máximo.\n"
-        << "  --install-angle <deg>      Compensación angular de montaje.\n"
+        << "  --install-angle <deg>      Compensación angular de montaje en grados del marco del LiDAR.\n"
         << "  --no-filter                Desactiva el filtro de puntos.\n"
         << "  --save-csv                 Guarda la última vuelta en latest_scan.csv\n"
         << "  --output <carpeta>         Carpeta para SVG/CSV.\n"
@@ -120,7 +120,9 @@ int main(int argc, char** argv) {
     }
 
     const DeviceInfo info = lidar.deviceInfo();
-    std::cout << "Modelo: " << info.model << "  Rev: " << static_cast<int>(info.revision) << '\n';
+    std::cout << "Modelo: " << info.model << "  Rev: " << static_cast<int>(info.revision)
+              << "  sentido=" << (info.clockwise ? "horario" : "antihorario")
+              << "  correccion_host=" << (info.needs_angle_correction ? "si" : "no") << '\n';
 
     if (!lidar.start()) {
         std::cerr << "No se pudo iniciar el LiDAR.\n";
