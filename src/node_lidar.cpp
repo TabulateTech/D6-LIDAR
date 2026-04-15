@@ -40,7 +40,7 @@ bool NodeLidar::initialize() {
     status_.connected = true;
 
     DeviceInfo info;
-    if (processing_->tryReadDeviceInfo(info, 250)) {
+    if (processing_->tryReadDeviceInfo(info, 1000)) {
         device_info_ = info;
     } else {
         device_info_.model = "COIN-D6/UNKNOWN";
@@ -59,10 +59,50 @@ bool NodeLidar::start() {
     status_.running = true;
 
     if (!status_.simulate) {
-        if (!processing_->sendStartCommand()) {
-            status_.running = false;
-            return false;
+        bool started = processing_->sendStartCommand();
+        if (!started) {
+            const auto d1 = processing_->diagnostics();
+            std::cerr << "Fallo el primer intento de inicio: " << d1.last_error;
+            if (!d1.last_ack.empty()) {
+                std::cerr << " | last_ack=" << d1.last_ack;
+            }
+            if (debug_options_.verbose && !d1.recent_hex.empty()) {
+                std::cerr << " | recent_hex=" << d1.recent_hex;
+            }
+            std::cerr << std::endl;
+
+            sleep_ms(150);
+            started = processing_->sendStartCommand();
+            if (!started) {
+                const auto d2 = processing_->diagnostics();
+                std::cerr << "Fallo el segundo intento de inicio: " << d2.last_error;
+                if (!d2.last_ack.empty()) {
+                    std::cerr << " | last_ack=" << d2.last_ack;
+                }
+                if (debug_options_.verbose && !d2.recent_hex.empty()) {
+                    std::cerr << " | recent_hex=" << d2.recent_hex;
+                }
+                std::cerr << std::endl;
+
+                std::vector<RawNode> packet;
+                bool ring_start = false;
+                float scan_frequency_hz = 0.0f;
+                if (processing_->readPacket(packet, ring_start, scan_frequency_hz, 1500)) {
+                    std::cerr << "Advertencia: no se recibió ACK de inicio documentado, pero sí llegaron paquetes válidos; se continuará en modo pasivo." << std::endl;
+                    if (!packet.empty()) {
+                        LaserScan first_scan = buildScanFromNodes(packet, scan_frequency_hz > 0.0f ? scan_frequency_hz : 10.0f);
+                        publishScan(first_scan);
+                    }
+                    sleep_ms(50);
+                    worker_ = std::thread(&NodeLidar::acquisitionLoop, this);
+                    return true;
+                }
+
+                status_.running = false;
+                return false;
+            }
         }
+        std::cout << "ACK de inicio validado." << std::endl;
         sleep_ms(100);
         worker_ = std::thread(&NodeLidar::acquisitionLoop, this);
     } else {
@@ -84,7 +124,9 @@ void NodeLidar::stop() {
     }
 
     if (processing_) {
-        processing_->sendStopCommand();
+        if (processing_->sendStopCommand()) {
+            std::cout << "ACK de parada validado." << std::endl;
+        }
     }
     if (serial_port_) {
         serial_port_->close();
@@ -148,8 +190,9 @@ LaserScan NodeLidar::buildScanFromNodes(const std::vector<RawNode>& nodes, float
         const float corrected_angle = p.angle + robot_info_.install_to_zero;
         const float wrapped = std::fmod(corrected_angle + 360.0f, 360.0f);
         const float rad = wrapped * static_cast<float>(PI / 180.0);
-        p.x = p.range * std::cos(rad);
-        p.y = p.range * std::sin(rad);
+        // COIN-D6: 0° apunta al eje +Y y el ángulo crece en sentido horario (left-hand rule).
+        p.x = p.range * std::sin(rad);
+        p.y = p.range * std::cos(rad);
         scan.points.push_back(p);
     }
 
@@ -181,12 +224,22 @@ void NodeLidar::printDiagnostics(std::size_t current_scan_points, bool packet_re
         << " lsn0=" << d.zero_lsn_packets
         << " ring=" << d.ring_starts
         << " speed_bytes=" << d.speed_bytes_discarded
+        << " start_cmd=" << d.start_commands_sent
+        << " stop_cmd=" << d.stop_commands_sent
+        << " start_ack_ok=" << d.start_ack_ok
+        << " start_ack_err=" << d.start_ack_error
+        << " stop_ack_ok=" << d.stop_ack_ok
+        << " stop_ack_err=" << d.stop_ack_error
+        << " ack_timeouts=" << d.ack_timeouts
         << " stream_buf=" << d.stream_buffer_size
         << " raw_buf=" << d.raw_buffer_size
         << " current_scan=" << current_scan_points
         << " packet=" << (packet_received ? "yes" : "no");
     if (!d.last_error.empty()) {
         oss << " last_error='" << d.last_error << "'";
+    }
+    if (!d.last_ack.empty()) {
+        oss << " last_ack='" << d.last_ack << "'";
     }
     std::cout << oss.str() << std::endl;
     if (debug_options_.verbose && !d.recent_hex.empty()) {
@@ -289,8 +342,9 @@ void NodeLidar::simulatorLoop() {
             float range = 4.0f;
             const float wall_x = 3.0f;
             const float wall_y = 2.2f;
-            const float dx = std::cos(rad);
-            const float dy = std::sin(rad);
+            // Simulación en la misma convención del manual: 0° arriba, positivo horario.
+            const float dx = std::sin(rad);
+            const float dy = std::cos(rad);
 
             if (std::fabs(dx) > 1e-3f) {
                 const float t = wall_x / dx;
